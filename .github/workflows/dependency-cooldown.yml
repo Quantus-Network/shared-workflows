@@ -1,0 +1,77 @@
+name: Dependency cooldown
+
+# Reusable pull request gate. Call it from any repository in the organisation:
+#
+#   on:
+#     pull_request:
+#       types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+#   jobs:
+#     dependency-cooldown:
+#       uses: Quantus-Network/shared-workflows/.github/workflows/dependency-cooldown.yml@v1
+#
+# The `labeled` and `edited` types matter: they are what re-runs the gate after
+# someone applies the bypass label or writes the bypass reason.
+#
+# See docs/dependency-cooldown.md for the full adoption guide.
+
+on:
+  workflow_call:
+    inputs:
+      bypass-label:
+        description: Pull request label that permits an emergency bypass.
+        type: string
+        required: false
+        default: dependency-cooldown-bypass
+      runs-on:
+        description: Runner label to execute on.
+        type: string
+        required: false
+        default: ubuntu-latest
+      node-version:
+        description: Node.js version used to run the checker.
+        type: string
+        required: false
+        default: "22"
+    outputs:
+      violation-count:
+        description: Number of dependency versions younger than the cooldown window.
+        value: ${{ jobs.cooldown.outputs.violation-count }}
+
+permissions:
+  contents: read
+
+jobs:
+  cooldown:
+    name: Dependency cooldown
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      violation-count: ${{ steps.cooldown.outputs.violation-count }}
+    steps:
+      # This gate reads the pull request payload for the bypass label, so it is
+      # only meaningful on pull_request events.
+      - name: Reject unsupported events
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "::error::dependency-cooldown.yml gates pull_request events; got '${{ github.event_name }}'. Use dependency-cooldown-audit.yml for scheduled runs."
+          exit 1
+
+      - name: Check out the pull request head
+        uses: actions/checkout@v7
+        with:
+          # Base lockfiles are read out of git history rather than the diff, so
+          # both sides of the pull request must be present locally.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Enforce dependency cooldown
+        id: cooldown
+        # Keep this ref in step with the tag callers use for this workflow.
+        uses: Quantus-Network/shared-workflows/actions/dependency-cooldown@v1
+        with:
+          mode: check
+          base-ref: ${{ github.event.pull_request.base.sha }}
+          bypass-label: ${{ inputs.bypass-label }}

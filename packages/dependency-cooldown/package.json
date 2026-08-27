@@ -1,0 +1,28 @@
+{
+  "name": "@quantus/dependency-cooldown",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enforces a minimum release age on every dependency version introduced by a pull request.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "smol-toml": "^1.4.2",
+    "tinyglobby": "^0.2.15",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.2",
+    "esbuild": "^0.27.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

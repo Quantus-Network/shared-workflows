@@ -1,0 +1,57 @@
+name: Dependency cooldown
+description: >-
+  Fails if a pull request introduces a dependency version that was published
+  less than the organisation's minimum release age ago.
+
+inputs:
+  mode:
+    description: '"check" to gate a pull request, "audit" to report on the locked dependency set.'
+    required: false
+    default: check
+  base-ref:
+    description: Revision to diff lockfiles against. Required in check mode.
+    required: false
+  repo-dir:
+    description: Directory holding the checked out repository.
+    required: false
+    default: .
+  bypass-label:
+    description: Pull request label that permits an emergency bypass.
+    required: false
+    default: dependency-cooldown-bypass
+
+outputs:
+  violation-count:
+    description: Number of dependency versions younger than the cooldown window.
+    value: ${{ steps.cooldown.outputs.violation-count }}
+  min-release-age-days:
+    description: Cooldown window that was enforced, in days.
+    value: ${{ steps.cooldown.outputs.min-release-age-days }}
+
+runs:
+  using: composite
+  steps:
+    - name: Enforce dependency cooldown
+      id: cooldown
+      shell: bash
+      # Inputs travel through the environment rather than being interpolated
+      # into the script, so no caller-supplied value can be executed as shell.
+      env:
+        COOLDOWN_MODE: ${{ inputs.mode }}
+        COOLDOWN_BASE_REF: ${{ inputs.base-ref }}
+        COOLDOWN_REPO_DIR: ${{ inputs.repo-dir }}
+        COOLDOWN_BYPASS_LABEL: ${{ inputs.bypass-label }}
+        # github.action_path points at this action's checkout, so the bundled
+        # checker always matches the pinned ref of shared-workflows.
+        COOLDOWN_DIST: ${{ github.action_path }}/dist/index.mjs
+      run: |
+        set -euo pipefail
+        args=(
+          "--mode=${COOLDOWN_MODE}"
+          "--repo-dir=${COOLDOWN_REPO_DIR}"
+          "--bypass-label=${COOLDOWN_BYPASS_LABEL}"
+        )
+        if [[ -n "${COOLDOWN_BASE_REF}" ]]; then
+          args+=("--base-ref=${COOLDOWN_BASE_REF}")
+        fi
+        node "${COOLDOWN_DIST}" "${args[@]}"

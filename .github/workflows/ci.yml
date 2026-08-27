@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: packages/dependency-cooldown
+
+jobs:
+  dependency-cooldown:
+    name: dependency-cooldown package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/dependency-cooldown/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Built before the tests, because the suite runs the bundle as a process
+      # to catch bundling faults that importing the sources cannot.
+      - run: npm run build
+
+      - run: npm test
+
+      # The action ships a committed bundle, so a stale dist/ would keep running
+      # old policy code in every consuming repository.
+      - name: Verify the committed bundle matches src/
+        run: |
+          if ! git diff --exit-code -- ../../actions/dependency-cooldown/dist; then
+            echo "::error::actions/dependency-cooldown/dist is stale. Run 'npm run build' in packages/dependency-cooldown and commit the result."
+            exit 1
+          fi

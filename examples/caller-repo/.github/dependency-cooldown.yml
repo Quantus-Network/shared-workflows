@@ -1,0 +1,4 @@
+# Optional. Only needed to demand a LONGER cooldown than the organisation
+# floor of 30 days. A value below the floor is rejected as a configuration
+# error, so this file cannot be used to weaken the policy.
+minReleaseAgeDays: 90

@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "demo-app",
+      "dependencies": {
+        "left-pad": "^1.3.0",
+        "@scope/util": "^2.1.0",
+      },
+    },
+    "packages/lib": {
+      "name": "workspace-lib",
+    },
+  },
+  "packages": {
+    "@scope/util": ["@scope/util@2.1.0", "", {}, "sha512-aaaa"],
+    "left-pad": ["left-pad@1.3.0", "", {}, "sha512-bbbb"],
+    "patched-thing": ["patched-thing@git+https://github.com/acme/patched-thing#c0ffee"],
+    "workspace-lib": ["workspace-lib@workspace:packages/lib"],
+  },
+}
