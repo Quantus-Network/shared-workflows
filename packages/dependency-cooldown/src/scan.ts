@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -22,36 +23,77 @@ const run = promisify(execFile);
 export const IGNORED_DIRECTORY_NAMES = [".git", "node_modules", "target", ".dart_tool"];
 
 /**
- * bun.lockb is listed so a binary-only repository fails closed. When a text
- * bun.lock sits in the same directory (Bun 1.2+ plus a Cloudflare Pages marker
- * file, for example), the text lockfile is the inspectable source of truth.
+ * Exact dummy bun.lockb committed by Quantus Cloudflare Pages checkouts (docs,
+ * explorer, website). Identity is this whole buffer, not its length: a
+ * different 189-byte file is a real lockfile and fails closed.
  */
-function omitBunLockbCoveredByTextLock(lockfiles: string[]): string[] {
+export const CLOUDFLARE_PAGES_BUN_LOCKB_MARKER =
+  "# THIS IS JUST DUMMY FILE FOR HELPING CLOUDFLARE DETECT BUN PACKAGE MANAGER (https://community.cloudflare.com/t/bun-not-detected-as-tool-when-using-new-bun-lock-instead-of-bun-lockb/779835)";
+
+const CLOUDFLARE_PAGES_BUN_LOCKB_MARKER_BYTES = Buffer.from(CLOUDFLARE_PAGES_BUN_LOCKB_MARKER);
+
+function siblingBunLock(lockbPath: string): string {
+  const directory = dirname(lockbPath);
+  return directory === "." ? "bun.lock" : `${directory}/bun.lock`;
+}
+
+function isCloudflarePagesDummyBunLockb(content: Buffer): boolean {
+  return content.equals(CLOUDFLARE_PAGES_BUN_LOCKB_MARKER_BYTES);
+}
+
+function isDummyBunLockbOnDisk(repoDir: string, lockbPath: string): boolean {
+  return isCloudflarePagesDummyBunLockb(readFileSync(join(repoDir, lockbPath)));
+}
+
+/**
+ * bun.lockb is listed so a binary-only repository fails closed. A sibling
+ * bun.lock is the inspectable source of truth only when bun.lockb is the
+ * known Cloudflare Pages dummy; a real or unknown paired bun.lockb is kept
+ * so the parser rejects it instead of skipping an unreadable lockfile.
+ */
+function omitDummyBunLockbCoveredByTextLock(
+  lockfiles: string[],
+  dummyLockbPaths: ReadonlySet<string>,
+): string[] {
   const present = new Set(lockfiles);
   return lockfiles.filter((path) => {
     if (basename(path) !== "bun.lockb") {
       return true;
     }
-    const directory = dirname(path);
-    const textLock = directory === "." ? "bun.lock" : `${directory}/bun.lock`;
-    return !present.has(textLock);
+    if (!present.has(siblingBunLock(path))) {
+      return true;
+    }
+    return !dummyLockbPaths.has(path);
   });
 }
 
+function dummyBunLockbPathsOnDisk(repoDir: string, lockfiles: string[]): Set<string> {
+  const present = new Set(lockfiles);
+  const dummies = new Set<string>();
+  for (const path of lockfiles) {
+    if (basename(path) !== "bun.lockb" || !present.has(siblingBunLock(path))) {
+      continue;
+    }
+    if (isDummyBunLockbOnDisk(repoDir, path)) {
+      dummies.add(path);
+    }
+  }
+  return dummies;
+}
+
 export function discoverLockfiles(repoDir: string): string[] {
-  return omitBunLockbCoveredByTextLock(
-    globSync(
-      LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
-      {
-        cwd: repoDir,
-        ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
-        // Lockfiles under dot-directories still count; only the names above are
-        // skipped.
-        dot: true,
-        onlyFiles: true,
-      },
-    ).sort(),
-  );
+  const lockfiles = globSync(
+    LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
+    {
+      cwd: repoDir,
+      ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
+      // Lockfiles under dot-directories still count; only the names above are
+      // skipped.
+      dot: true,
+      onlyFiles: true,
+    },
+  ).sort();
+  return omitDummyBunLockbCoveredByTextLock(lockfiles, dummyBunLockbPathsOnDisk(repoDir, lockfiles));
 }
 
 export interface ScanResult {
@@ -74,6 +116,40 @@ function isIgnoredPath(path: string): boolean {
   return path.split("/").some((segment) => IGNORED_DIRECTORY_NAMES.includes(segment));
 }
 
+async function isDummyBunLockbAtRef(
+  repoDir: string,
+  ref: string,
+  lockbPath: string,
+): Promise<boolean> {
+  const { stdout } = await run("git", ["cat-file", "blob", `${ref}:${lockbPath}`], {
+    cwd: repoDir,
+    encoding: "buffer",
+    maxBuffer: 128 * 1024 * 1024,
+  });
+  if (!Buffer.isBuffer(stdout)) {
+    throw new Error(`git cat-file blob ${ref}:${lockbPath} did not return a buffer`);
+  }
+  return isCloudflarePagesDummyBunLockb(stdout);
+}
+
+async function dummyBunLockbPathsAtRef(
+  repoDir: string,
+  ref: string,
+  lockfiles: string[],
+): Promise<Set<string>> {
+  const present = new Set(lockfiles);
+  const dummies = new Set<string>();
+  for (const path of lockfiles) {
+    if (basename(path) !== "bun.lockb" || !present.has(siblingBunLock(path))) {
+      continue;
+    }
+    if (await isDummyBunLockbAtRef(repoDir, ref, path)) {
+      dummies.add(path);
+    }
+  }
+  return dummies;
+}
+
 /**
  * Lists lockfiles as they existed at `ref`, so that moving or renaming a
  * lockfile does not make its whole content look newly introduced.
@@ -83,13 +159,15 @@ export async function listLockfilesAtRef(repoDir: string, ref: string): Promise<
     cwd: repoDir,
     maxBuffer: 64 * 1024 * 1024,
   });
-  return omitBunLockbCoveredByTextLock(
-    stdout
-      .split("\n")
-      .filter((path) => path.length > 0)
-      .filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop() as string))
-      .filter((path) => !isIgnoredPath(path))
-      .sort(),
+  const lockfiles = stdout
+    .split("\n")
+    .filter((path) => path.length > 0)
+    .filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop() as string))
+    .filter((path) => !isIgnoredPath(path))
+    .sort();
+  return omitDummyBunLockbCoveredByTextLock(
+    lockfiles,
+    await dummyBunLockbPathsAtRef(repoDir, ref, lockfiles),
   );
 }
 

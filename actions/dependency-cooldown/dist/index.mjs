@@ -9549,6 +9549,7 @@ async function resolvePublishDates(dependencies, http) {
 
 // src/scan.ts
 import { execFile } from "node:child_process";
+import { readFileSync as readFileSync2 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename as basename3, dirname as dirname2, join } from "node:path";
 import { promisify } from "node:util";
@@ -12110,31 +12111,56 @@ function collectDetailed(lockfilePath, content) {
 // src/scan.ts
 var run = promisify(execFile);
 var IGNORED_DIRECTORY_NAMES = [".git", "node_modules", "target", ".dart_tool"];
-function omitBunLockbCoveredByTextLock(lockfiles) {
+var CLOUDFLARE_PAGES_BUN_LOCKB_MARKER = "# THIS IS JUST DUMMY FILE FOR HELPING CLOUDFLARE DETECT BUN PACKAGE MANAGER (https://community.cloudflare.com/t/bun-not-detected-as-tool-when-using-new-bun-lock-instead-of-bun-lockb/779835)";
+var CLOUDFLARE_PAGES_BUN_LOCKB_MARKER_BYTES = Buffer.from(CLOUDFLARE_PAGES_BUN_LOCKB_MARKER);
+function siblingBunLock(lockbPath) {
+  const directory = dirname2(lockbPath);
+  return directory === "." ? "bun.lock" : `${directory}/bun.lock`;
+}
+function isCloudflarePagesDummyBunLockb(content) {
+  return content.equals(CLOUDFLARE_PAGES_BUN_LOCKB_MARKER_BYTES);
+}
+function isDummyBunLockbOnDisk(repoDir, lockbPath) {
+  return isCloudflarePagesDummyBunLockb(readFileSync2(join(repoDir, lockbPath)));
+}
+function omitDummyBunLockbCoveredByTextLock(lockfiles, dummyLockbPaths) {
   const present = new Set(lockfiles);
   return lockfiles.filter((path) => {
     if (basename3(path) !== "bun.lockb") {
       return true;
     }
-    const directory = dirname2(path);
-    const textLock = directory === "." ? "bun.lock" : `${directory}/bun.lock`;
-    return !present.has(textLock);
+    if (!present.has(siblingBunLock(path))) {
+      return true;
+    }
+    return !dummyLockbPaths.has(path);
   });
 }
+function dummyBunLockbPathsOnDisk(repoDir, lockfiles) {
+  const present = new Set(lockfiles);
+  const dummies = /* @__PURE__ */ new Set();
+  for (const path of lockfiles) {
+    if (basename3(path) !== "bun.lockb" || !present.has(siblingBunLock(path))) {
+      continue;
+    }
+    if (isDummyBunLockbOnDisk(repoDir, path)) {
+      dummies.add(path);
+    }
+  }
+  return dummies;
+}
 function discoverLockfiles(repoDir) {
-  return omitBunLockbCoveredByTextLock(
-    globSync(
-      LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
-      {
-        cwd: repoDir,
-        ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
-        // Lockfiles under dot-directories still count; only the names above are
-        // skipped.
-        dot: true,
-        onlyFiles: true
-      }
-    ).sort()
-  );
+  const lockfiles = globSync(
+    LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
+    {
+      cwd: repoDir,
+      ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
+      // Lockfiles under dot-directories still count; only the names above are
+      // skipped.
+      dot: true,
+      onlyFiles: true
+    }
+  ).sort();
+  return omitDummyBunLockbCoveredByTextLock(lockfiles, dummyBunLockbPathsOnDisk(repoDir, lockfiles));
 }
 async function scanWorkingTree(repoDir, lockfiles) {
   const result = { dependencies: [], uncheckable: [] };
@@ -12149,13 +12175,39 @@ async function scanWorkingTree(repoDir, lockfiles) {
 function isIgnoredPath(path) {
   return path.split("/").some((segment) => IGNORED_DIRECTORY_NAMES.includes(segment));
 }
+async function isDummyBunLockbAtRef(repoDir, ref, lockbPath) {
+  const { stdout } = await run("git", ["cat-file", "blob", `${ref}:${lockbPath}`], {
+    cwd: repoDir,
+    encoding: "buffer",
+    maxBuffer: 128 * 1024 * 1024
+  });
+  if (!Buffer.isBuffer(stdout)) {
+    throw new Error(`git cat-file blob ${ref}:${lockbPath} did not return a buffer`);
+  }
+  return isCloudflarePagesDummyBunLockb(stdout);
+}
+async function dummyBunLockbPathsAtRef(repoDir, ref, lockfiles) {
+  const present = new Set(lockfiles);
+  const dummies = /* @__PURE__ */ new Set();
+  for (const path of lockfiles) {
+    if (basename3(path) !== "bun.lockb" || !present.has(siblingBunLock(path))) {
+      continue;
+    }
+    if (await isDummyBunLockbAtRef(repoDir, ref, path)) {
+      dummies.add(path);
+    }
+  }
+  return dummies;
+}
 async function listLockfilesAtRef(repoDir, ref) {
   const { stdout } = await run("git", ["ls-tree", "-r", "--name-only", ref], {
     cwd: repoDir,
     maxBuffer: 64 * 1024 * 1024
   });
-  return omitBunLockbCoveredByTextLock(
-    stdout.split("\n").filter((path) => path.length > 0).filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop())).filter((path) => !isIgnoredPath(path)).sort()
+  const lockfiles = stdout.split("\n").filter((path) => path.length > 0).filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop())).filter((path) => !isIgnoredPath(path)).sort();
+  return omitDummyBunLockbCoveredByTextLock(
+    lockfiles,
+    await dummyBunLockbPathsAtRef(repoDir, ref, lockfiles)
   );
 }
 async function readFileAtRef(repoDir, ref, lockfile) {
