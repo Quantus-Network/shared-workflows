@@ -128,8 +128,15 @@ can be established. They are listed in the job summary under "could not be
 age-checked" instead of being silently ignored — a dependency the tool skipped
 without saying so would be a hole in the policy. Review those by hand.
 
-Bun's binary `bun.lockb` cannot be inspected at all and fails the run. Commit
-the text lockfile instead:
+Bun's binary `bun.lockb` cannot be inspected. A repository that only has
+`bun.lockb` fails the run. A sibling `bun.lockb` is ignored only when its
+bytes are identical to the Cloudflare Pages dummy used by Quantus checkouts
+(`# THIS IS JUST DUMMY FILE...`). Length is not enough: a different file of
+the same size is rejected. Package changes are still taken from `bun.lock`;
+the dummy cannot encode a graph. A real or unknown `bun.lockb` next to
+`bun.lock` is rejected, because the two files can diverge (Bun 1.1 still
+installs from the binary). Bun's own migration is to generate `bun.lock` and
+then delete `bun.lockb`. Commit the text lockfile with:
 
 ```bash
 bun install --save-text-lockfile

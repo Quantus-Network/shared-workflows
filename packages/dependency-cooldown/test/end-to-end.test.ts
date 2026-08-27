@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BYPASS_REASON_MARKER } from "../src/bypass.js";
 import type { HttpClient } from "../src/registries/http.js";
 import { DEFAULT_BYPASS_LABEL, run } from "../src/run.js";
+import { CLOUDFLARE_PAGES_BUN_LOCKB_MARKER } from "../src/scan.js";
 import { readFixture } from "./helpers/fixtures.js";
 
 const NOW = new Date("2026-08-27T12:00:00Z");
@@ -245,6 +246,63 @@ describe("check mode", () => {
     expect(code).toBe(1);
     expect(summary()).toContain("engine/Cargo.lock");
     expect(summary()).toContain("Checked 6 newly introduced dependency version(s)");
+  });
+
+  it("checks bun.lock when the Cloudflare Pages dummy bun.lockb sits beside it", async () => {
+    write("bun.lock", readFixture("bun/base/bun.lock"));
+    write("bun.lockb", CLOUDFLARE_PAGES_BUN_LOCKB_MARKER);
+    const baseSha = commit("base");
+    write("bun.lock", readFixture("bun/head/bun.lock"));
+    commit("bump bun");
+
+    const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
+      http: httpStub({ "tslib@2.8.1": true }),
+      now: NOW,
+    });
+
+    expect(code).toBe(1);
+    expect(summary()).toContain("tslib");
+    expect(summary()).toContain("bun.lock");
+  });
+
+  it("refuses a PR that replaces the dummy bun.lockb with a real lockfile while bun.lock is unchanged", async () => {
+    write("bun.lock", readFixture("bun/base/bun.lock"));
+    write("bun.lockb", CLOUDFLARE_PAGES_BUN_LOCKB_MARKER);
+    const baseSha = commit("base");
+    write("bun.lockb", "#!\u0000binary\u0000");
+    commit("swap in a real bun.lockb");
+
+    await expect(
+      run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
+        http: httpStub({}),
+        now: NOW,
+      }),
+    ).rejects.toThrow(/bun\.lockb/);
+  });
+
+  it("refuses a divergent non-marker bun.lockb sitting beside bun.lock", async () => {
+    write("bun.lock", readFixture("bun/base/bun.lock"));
+    write("bun.lockb", "#!\u0000binary\u0000");
+    const baseSha = commit("base");
+
+    await expect(
+      run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
+        http: httpStub({}),
+        now: NOW,
+      }),
+    ).rejects.toThrow(/bun\.lockb/);
+  });
+
+  it("still refuses a repository that only has bun.lockb", async () => {
+    write("bun.lockb", "#!\u0000binary\u0000");
+    const baseSha = commit("base");
+
+    await expect(
+      run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
+        http: httpStub({}),
+        now: NOW,
+      }),
+    ).rejects.toThrow(/bun\.lockb/);
   });
 
   it("refuses to run in a repository with no lockfile", async () => {
