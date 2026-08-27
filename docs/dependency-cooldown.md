@@ -128,8 +128,11 @@ can be established. They are listed in the job summary under "could not be
 age-checked" instead of being silently ignored — a dependency the tool skipped
 without saying so would be a hole in the policy. Review those by hand.
 
-Bun's binary `bun.lockb` cannot be inspected at all and fails the run. Commit
-the text lockfile instead:
+Bun's binary `bun.lockb` cannot be inspected. A repository that only has
+`bun.lockb` fails the run. If a text `bun.lock` is present in the same
+directory, `bun.lockb` is ignored — that pairing is how some hosts (Cloudflare
+Pages among them) detect Bun while the real resolved graph lives in `bun.lock`.
+Commit the text lockfile with:
 
 ```bash
 bun install --save-text-lockfile

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import { globSync } from "tinyglobby";
@@ -21,18 +21,37 @@ const run = promisify(execFile);
  */
 export const IGNORED_DIRECTORY_NAMES = [".git", "node_modules", "target", ".dart_tool"];
 
+/**
+ * bun.lockb is listed so a binary-only repository fails closed. When a text
+ * bun.lock sits in the same directory (Bun 1.2+ plus a Cloudflare Pages marker
+ * file, for example), the text lockfile is the inspectable source of truth.
+ */
+function omitBunLockbCoveredByTextLock(lockfiles: string[]): string[] {
+  const present = new Set(lockfiles);
+  return lockfiles.filter((path) => {
+    if (basename(path) !== "bun.lockb") {
+      return true;
+    }
+    const directory = dirname(path);
+    const textLock = directory === "." ? "bun.lock" : `${directory}/bun.lock`;
+    return !present.has(textLock);
+  });
+}
+
 export function discoverLockfiles(repoDir: string): string[] {
-  return globSync(
-    LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
-    {
-      cwd: repoDir,
-      ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
-      // Lockfiles under dot-directories still count; only the names above are
-      // skipped.
-      dot: true,
-      onlyFiles: true,
-    },
-  ).sort();
+  return omitBunLockbCoveredByTextLock(
+    globSync(
+      LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
+      {
+        cwd: repoDir,
+        ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
+        // Lockfiles under dot-directories still count; only the names above are
+        // skipped.
+        dot: true,
+        onlyFiles: true,
+      },
+    ).sort(),
+  );
 }
 
 export interface ScanResult {
@@ -64,12 +83,14 @@ export async function listLockfilesAtRef(repoDir: string, ref: string): Promise<
     cwd: repoDir,
     maxBuffer: 64 * 1024 * 1024,
   });
-  return stdout
-    .split("\n")
-    .filter((path) => path.length > 0)
-    .filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop() as string))
-    .filter((path) => !isIgnoredPath(path))
-    .sort();
+  return omitBunLockbCoveredByTextLock(
+    stdout
+      .split("\n")
+      .filter((path) => path.length > 0)
+      .filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop() as string))
+      .filter((path) => !isIgnoredPath(path))
+      .sort(),
+  );
 }
 
 async function readFileAtRef(

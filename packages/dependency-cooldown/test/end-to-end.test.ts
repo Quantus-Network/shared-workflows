@@ -247,6 +247,35 @@ describe("check mode", () => {
     expect(summary()).toContain("Checked 6 newly introduced dependency version(s)");
   });
 
+  it("checks bun.lock when an empty bun.lockb sits beside it", async () => {
+    write("bun.lock", readFixture("bun/base/bun.lock"));
+    write("bun.lockb", "");
+    const baseSha = commit("base");
+    write("bun.lock", readFixture("bun/head/bun.lock"));
+    commit("bump bun");
+
+    const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
+      http: httpStub({ "tslib@2.8.1": true }),
+      now: NOW,
+    });
+
+    expect(code).toBe(1);
+    expect(summary()).toContain("tslib");
+    expect(summary()).toContain("bun.lock");
+  });
+
+  it("still refuses a repository that only has bun.lockb", async () => {
+    write("bun.lockb", "#!\u0000binary\u0000");
+    const baseSha = commit("base");
+
+    await expect(
+      run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
+        http: httpStub({}),
+        now: NOW,
+      }),
+    ).rejects.toThrow(/bun\.lockb/);
+  });
+
   it("refuses to run in a repository with no lockfile", async () => {
     write("README.md", "nothing to lock\n");
     const baseSha = commit("base");

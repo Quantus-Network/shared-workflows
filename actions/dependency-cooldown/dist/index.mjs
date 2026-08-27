@@ -9550,7 +9550,7 @@ async function resolvePublishDates(dependencies, http) {
 // src/scan.ts
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename as basename3, dirname as dirname2, join } from "node:path";
 import { promisify } from "node:util";
 
 // node_modules/tinyglobby/dist/index.mjs
@@ -12110,18 +12110,31 @@ function collectDetailed(lockfilePath, content) {
 // src/scan.ts
 var run = promisify(execFile);
 var IGNORED_DIRECTORY_NAMES = [".git", "node_modules", "target", ".dart_tool"];
-function discoverLockfiles(repoDir) {
-  return globSync(
-    LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
-    {
-      cwd: repoDir,
-      ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
-      // Lockfiles under dot-directories still count; only the names above are
-      // skipped.
-      dot: true,
-      onlyFiles: true
+function omitBunLockbCoveredByTextLock(lockfiles) {
+  const present = new Set(lockfiles);
+  return lockfiles.filter((path) => {
+    if (basename3(path) !== "bun.lockb") {
+      return true;
     }
-  ).sort();
+    const directory = dirname2(path);
+    const textLock = directory === "." ? "bun.lock" : `${directory}/bun.lock`;
+    return !present.has(textLock);
+  });
+}
+function discoverLockfiles(repoDir) {
+  return omitBunLockbCoveredByTextLock(
+    globSync(
+      LOCKFILE_FILENAMES.map((filename) => `**/${filename}`),
+      {
+        cwd: repoDir,
+        ignore: IGNORED_DIRECTORY_NAMES.map((name) => `**/${name}/**`),
+        // Lockfiles under dot-directories still count; only the names above are
+        // skipped.
+        dot: true,
+        onlyFiles: true
+      }
+    ).sort()
+  );
 }
 async function scanWorkingTree(repoDir, lockfiles) {
   const result = { dependencies: [], uncheckable: [] };
@@ -12141,7 +12154,9 @@ async function listLockfilesAtRef(repoDir, ref) {
     cwd: repoDir,
     maxBuffer: 64 * 1024 * 1024
   });
-  return stdout.split("\n").filter((path) => path.length > 0).filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop())).filter((path) => !isIgnoredPath(path)).sort();
+  return omitBunLockbCoveredByTextLock(
+    stdout.split("\n").filter((path) => path.length > 0).filter((path) => LOCKFILE_FILENAMES.includes(path.split("/").pop())).filter((path) => !isIgnoredPath(path)).sort()
+  );
 }
 async function readFileAtRef(repoDir, ref, lockfile) {
   try {
