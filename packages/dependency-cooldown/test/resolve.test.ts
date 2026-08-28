@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import type { HttpClient } from "../src/registries/http.js";
-import { resolvePublishDates } from "../src/resolve.js";
+import { type Clock, resolvePublishDates } from "../src/resolve.js";
 import type { LockedDependency } from "../src/types.js";
 
 const PUBLISHED = "2026-01-15T00:00:00.000Z";
+
+/** Admits every request immediately so tests can assert concurrency, not wall-clock pacing. */
+const unpaced: Clock = {
+  now: () => Date.now(),
+  sleep: async () => {},
+};
 
 function dep(registry: LockedDependency["registry"], name: string): LockedDependency {
   return { registry, name, version: "1.0.0", lockfile: "lock" };
@@ -35,7 +41,7 @@ describe("resolvePublishDates", () => {
     );
   });
 
-  it("serialises crates.io requests to respect its rate limit", async () => {
+  it("never overlaps crates.io requests", async () => {
     let inFlight = 0;
     let peak = 0;
     const http: HttpClient = {
@@ -51,9 +57,86 @@ describe("resolvePublishDates", () => {
     await resolvePublishDates(
       ["a", "b", "c", "d"].map((name) => dep("cargo", name)),
       http,
+      unpaced,
     );
 
     expect(peak).toBe(1);
+  });
+
+  it("starts crates.io requests at most once per second", async () => {
+    let now = 0;
+    const starts: number[] = [];
+    const http: HttpClient = {
+      async getJson() {
+        starts.push(now);
+        now += 5;
+        return { version: { num: "1.0.0", created_at: PUBLISHED } };
+      },
+    };
+
+    await resolvePublishDates(["a", "b"].map((name) => dep("cargo", name)), http, {
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+    });
+
+    expect(starts).toEqual([0, 1000]);
+  });
+
+  it("waits in real time between crates.io request starts", async () => {
+    const starts: number[] = [];
+    const http: HttpClient = {
+      async getJson() {
+        starts.push(Date.now());
+        return { version: { num: "1.0.0", created_at: PUBLISHED } };
+      },
+    };
+
+    await resolvePublishDates(["a", "b"].map((name) => dep("cargo", name)), http);
+
+    expect(starts).toHaveLength(2);
+    expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(950);
+  });
+
+  it("does not idle after a crates.io lookup that already took a second", async () => {
+    let now = 0;
+    const starts: number[] = [];
+    const sleeps: number[] = [];
+    const http: HttpClient = {
+      async getJson() {
+        starts.push(now);
+        now += 1500;
+        return { version: { num: "1.0.0", created_at: PUBLISHED } };
+      },
+    };
+
+    await resolvePublishDates(["a", "b"].map((name) => dep("cargo", name)), http, {
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+    });
+
+    expect(starts).toEqual([0, 1500]);
+    expect(sleeps).toEqual([]);
+  });
+
+  it("does not apply crates.io spacing to other registries", async () => {
+    const starts: number[] = [];
+    const http: HttpClient = {
+      async getJson() {
+        starts.push(Date.now());
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { time: { "1.0.0": PUBLISHED } };
+      },
+    };
+
+    await resolvePublishDates(["a", "b"].map((name) => dep("npm", name)), http);
+
+    expect(starts).toHaveLength(2);
+    expect(starts[1]! - starts[0]!).toBeLessThan(1000);
   });
 
   it("rejects when a publish date cannot be established", async () => {

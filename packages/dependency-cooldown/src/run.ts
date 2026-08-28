@@ -10,7 +10,7 @@ import { annotate, readPullRequestContext, setOutput, writeStepSummary } from ".
 import { ORG_MIN_RELEASE_AGE_DAYS, evaluatePolicy } from "./policy.js";
 import { type HttpClient, createHttpClient } from "./registries/http.js";
 import { renderSummary, violationMessage } from "./report.js";
-import { resolvePublishDates } from "./resolve.js";
+import { type Clock, resolvePublishDates } from "./resolve.js";
 import { discoverLockfiles, listLockfilesAtRef, scanRef, scanWorkingTree } from "./scan.js";
 
 export const DEFAULT_BYPASS_LABEL = "dependency-cooldown-bypass";
@@ -74,6 +74,8 @@ export interface RunOverrides {
   /** Injected by tests so no registry is contacted. */
   http?: HttpClient;
   now?: Date;
+  /** Injected by tests so crates.io pacing does not sleep in wall-clock time. */
+  clock?: Clock;
 }
 
 export async function run(argv: string[], overrides: RunOverrides = {}): Promise<number> {
@@ -120,7 +122,7 @@ export async function run(argv: string[], overrides: RunOverrides = {}): Promise
       : `${subjects.length} locked dependency version(s) to verify.`,
   );
 
-  const dated = await resolvePublishDates(subjects, http);
+  const dated = await resolvePublishDates(subjects, http, overrides.clock);
   const { violations } = evaluatePolicy(dated, {
     minReleaseAgeDays: config.minReleaseAgeDays,
     now,

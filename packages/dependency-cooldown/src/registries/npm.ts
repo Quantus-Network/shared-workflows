@@ -12,6 +12,7 @@ export const npmRegistry: Registry = {
   id: "npm",
   displayName: "npmjs.com",
   maxConcurrency: 8,
+  minRequestIntervalMs: 0,
 
   versionUrl(name, version) {
     return `https://www.npmjs.com/package/${name}/v/${version}`;

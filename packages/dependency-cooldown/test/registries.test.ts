@@ -16,6 +16,14 @@ function stubHttp(payloads: Record<string, unknown>): HttpClient {
   };
 }
 
+describe("registry request pacing", () => {
+  it("only crates.io asks for a one-second gap between request starts", () => {
+    expect(npmRegistry.minRequestIntervalMs).toBe(0);
+    expect(pubRegistry.minRequestIntervalMs).toBe(0);
+    expect(cargoRegistry.minRequestIntervalMs).toBe(1000);
+  });
+});
+
 describe("npm registry", () => {
   const packument = {
     "https://registry.npmjs.org/left-pad": {

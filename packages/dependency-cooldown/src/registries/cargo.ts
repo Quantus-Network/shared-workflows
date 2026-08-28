@@ -4,8 +4,9 @@ import { parseTimestamp } from "./timestamp.js";
 export const cargoRegistry: Registry = {
   id: "cargo",
   displayName: "crates.io",
-  // crates.io asks API clients to stay near one request per second.
+  // crates.io data-access policy: at most one API request per second.
   maxConcurrency: 1,
+  minRequestIntervalMs: 1000,
 
   versionUrl(name, version) {
     return `https://crates.io/crates/${name}/${version}`;

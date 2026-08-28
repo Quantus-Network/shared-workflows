@@ -168,8 +168,9 @@ The design goal is that a new language costs one file plus one fixture.
    silently: put it in `uncheckable` with a reason.
 2. **Add a registry client** in `src/registries/<name>.ts` if the ecosystem uses
    a registry that is not already supported, exporting a `Registry` that maps a
-   name and version to a publish date. Set `maxConcurrency` to whatever the
-   registry's rate limit tolerates. Register it in `src/registries/index.ts` and
+   name and version to a publish date. Set `maxConcurrency` and
+   `minRequestIntervalMs` to whatever the registry's rate limit tolerates
+   (crates.io: one request per second). Register it in `src/registries/index.ts` and
    add the id to `RegistryId` in `src/types.ts`.
 3. **Register the format** in the `LOCKFILE_FORMATS` array in
    `src/lockfiles/index.ts`. Lockfile discovery, diffing, reporting and the

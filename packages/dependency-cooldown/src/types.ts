@@ -44,10 +44,15 @@ export interface Registry {
   id: RegistryId;
   displayName: string;
   /**
-   * Parallel requests allowed against this registry. crates.io asks for roughly
-   * one request per second, so it is deliberately serialised.
+   * Parallel in-flight requests allowed against this registry.
    */
   maxConcurrency: number;
+  /**
+   * Minimum milliseconds between starting requests to this registry.
+   * crates.io allows at most one API request per second, so cargo uses 1000.
+   * Registries with no documented request-rate cap use 0.
+   */
+  minRequestIntervalMs: number;
   /** Human-facing page for a version, used in the report. */
   versionUrl(name: string, version: string): string;
   fetchPublishedAt(name: string, version: string, http: HttpClient): Promise<Date>;
