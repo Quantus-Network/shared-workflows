@@ -11235,8 +11235,19 @@ var NON_REGISTRY_PROTOCOLS = [
   "git+",
   "github:",
   "http:",
-  "https:"
+  "https:",
+  "root:"
 ];
+var LOCAL_TARBALL_EXTENSIONS = [".tgz", ".tar.gz", ".tar"];
+function isLocalTarballSpecifier(specifier) {
+  if (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("/")) {
+    return true;
+  }
+  return LOCAL_TARBALL_EXTENSIONS.some((extension) => specifier.endsWith(extension));
+}
+function isNpmRegistryTuple(entry) {
+  return typeof entry[1] === "string";
+}
 function splitDescriptor(descriptor) {
   const separator = descriptor.indexOf("@", 1);
   if (separator <= 0) {
@@ -11281,6 +11292,10 @@ var bunLockfile = {
       );
       if (protocol !== void 0) {
         uncheckable.push({ name, version: null, reason: `resolved via ${protocol}` });
+        continue;
+      }
+      if (!isNpmRegistryTuple(entry) && isLocalTarballSpecifier(specifier)) {
+        uncheckable.push({ name, version: null, reason: "resolved via local tarball" });
         continue;
       }
       refs.push({ registry: "npm", name, version: specifier });

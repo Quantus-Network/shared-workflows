@@ -7,6 +7,14 @@ import type { DependencyRef, LockfileFormat, ParsedLockfile } from "../types.js"
  * `"<key>": ["<name>@<version>", registry, meta, integrity]`. Non-registry
  * dependencies use a descriptor such as `name@workspace:path` or
  * `name@git+https://...` instead of a semver version.
+ *
+ * Local tarballs are a separate resolution type: Bun writes `name@./file.tgz`
+ * with no `file:` prefix (folders use `file:`, remote tarball URLs use
+ * `http:`/`https:`). Distinguishing them from registry versions must use the
+ * tuple, not the specifier suffix: npm prereleases such as `1.2.3-release.tgz`
+ * are valid, and Bun still stores them as `[name@version, registry, meta,
+ * integrity]` with a string registry field. Local tarballs put the metadata
+ * object in that slot: `[name@tarball, meta]`.
  */
 const NON_REGISTRY_PROTOCOLS = [
   "workspace:",
@@ -16,7 +24,22 @@ const NON_REGISTRY_PROTOCOLS = [
   "github:",
   "http:",
   "https:",
+  "root:",
 ];
+
+const LOCAL_TARBALL_EXTENSIONS = [".tgz", ".tar.gz", ".tar"];
+
+function isLocalTarballSpecifier(specifier: string): boolean {
+  if (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("/")) {
+    return true;
+  }
+  return LOCAL_TARBALL_EXTENSIONS.some((extension) => specifier.endsWith(extension));
+}
+
+/** npm resolutions store a registry URL (or `""` for the default) at index 1. */
+function isNpmRegistryTuple(entry: unknown[]): boolean {
+  return typeof entry[1] === "string";
+}
 
 function splitDescriptor(descriptor: string): { name: string; specifier: string } {
   // The separator is the first @ after index 0: a scoped name starts with @,
@@ -71,6 +94,10 @@ export const bunLockfile: LockfileFormat = {
       );
       if (protocol !== undefined) {
         uncheckable.push({ name, version: null, reason: `resolved via ${protocol}` });
+        continue;
+      }
+      if (!isNpmRegistryTuple(entry) && isLocalTarballSpecifier(specifier)) {
+        uncheckable.push({ name, version: null, reason: "resolved via local tarball" });
         continue;
       }
       refs.push({ registry: "npm", name, version: specifier });

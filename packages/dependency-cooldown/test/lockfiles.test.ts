@@ -44,6 +44,32 @@ describe("npm package-lock.json", () => {
       ),
     ).toThrow(/lockfileVersion 1/);
   });
+
+  it("reports a local tarball as uncheckable rather than treating it as a registry version", () => {
+    const parsed = npmLockfile.parse(
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          "": { name: "demo-app", version: "1.0.0" },
+          "node_modules/human-readable-checksum": {
+            version: "0.3.0",
+            resolved: "file:package/human-readable-checksum-0.3.0.tgz",
+          },
+        },
+      }),
+      "package-lock.json",
+    );
+
+    expect(parsed.refs).toEqual([]);
+    expect(parsed.uncheckable).toEqual([
+      {
+        name: "human-readable-checksum",
+        version: "0.3.0",
+        reason:
+          "not resolved from registry.npmjs.org (file:package/human-readable-checksum-0.3.0.tgz)",
+      },
+    ]);
+  });
 });
 
 describe("bun.lock", () => {
@@ -88,6 +114,67 @@ describe("bun.lock", () => {
     expect(parsed.uncheckable.map((entry) => entry.name).sort()).toEqual([
       "patched-thing",
       "workspace-lib",
+    ]);
+  });
+
+  it.each(["1.2.3-release.tgz", "1.0.0-beta.tar.gz", "2.0.0-rc.tar"])(
+    "collects registry semver %s even though it ends with a tarball extension",
+    (version) => {
+      const parsed = bunLockfile.parse(
+        `{ "packages": { "pkg": ["pkg@${version}", "", {}, "sha512-abcd"] } }`,
+        "bun.lock",
+      );
+
+      expect(parsed.uncheckable).toEqual([]);
+      expect(parsed.refs).toEqual([{ registry: "npm", name: "pkg", version }]);
+    },
+  );
+
+  it("reports a relative local tarball as uncheckable rather than treating it as a registry version", () => {
+    const parsed = bunLockfile.parse(
+      '{ "packages": { "human-readable-checksum": ["human-readable-checksum@./package/human-readable-checksum-0.3.0.tgz", {}] } }',
+      "bun.lock",
+    );
+
+    expect(parsed.refs).toEqual([]);
+    expect(parsed.uncheckable).toEqual([
+      {
+        name: "human-readable-checksum",
+        version: null,
+        reason: "resolved via local tarball",
+      },
+    ]);
+  });
+
+  it.each([
+    "../vendor/pkg-1.0.0.tgz",
+    "/opt/pkg-1.0.0.tgz",
+    "package/pkg-1.0.0.tgz",
+    "./1.2.3-release.tgz",
+  ])(
+    "reports local tarball specifier %s as uncheckable",
+    (specifier) => {
+      const parsed = bunLockfile.parse(
+        `{ "packages": { "pkg": ["pkg@${specifier}", {}] } }`,
+        "bun.lock",
+      );
+
+      expect(parsed.refs).toEqual([]);
+      expect(parsed.uncheckable).toEqual([
+        { name: "pkg", version: null, reason: "resolved via local tarball" },
+      ]);
+    },
+  );
+
+  it("reports the lockfile root entry as uncheckable", () => {
+    const parsed = bunLockfile.parse(
+      '{ "packages": { "demo-app": ["demo-app@root:", { "bin": { "demo": "bin.js" } }] } }',
+      "bun.lock",
+    );
+
+    expect(parsed.refs).toEqual([]);
+    expect(parsed.uncheckable).toEqual([
+      { name: "demo-app", version: null, reason: "resolved via root:" },
     ]);
   });
 });
