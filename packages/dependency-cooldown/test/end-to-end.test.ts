@@ -386,4 +386,34 @@ describe("audit mode", () => {
 
     expect(code).toBe(0);
   });
+
+  it("audits a bun.lock that pins a local tarball without querying the registry for it", async () => {
+    write(
+      "bun.lock",
+      `{
+        "lockfileVersion": 1,
+        "packages": {
+          "left-pad": ["left-pad@1.3.0", "", {}, "sha512-bbbb"],
+          "human-readable-checksum": ["human-readable-checksum@./package/human-readable-checksum-0.3.0.tgz", {}]
+        }
+      }`,
+    );
+    commit("base");
+
+    const inner = httpStub({});
+    const http: HttpClient = {
+      async getJson(url) {
+        if (url === "https://registry.npmjs.org/human-readable-checksum") {
+          throw new Error(`GET ${url} failed with HTTP 404 Not Found`);
+        }
+        return inner.getJson(url);
+      },
+    };
+
+    const code = await run(["--mode=audit", `--repo-dir=${repoDir}`], { http, now: NOW });
+
+    expect(code).toBe(0);
+    expect(summary()).toContain("human-readable-checksum");
+    expect(summary()).toContain("could not be age-checked");
+  });
 });
