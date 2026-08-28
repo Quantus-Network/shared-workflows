@@ -11245,6 +11245,9 @@ function isLocalTarballSpecifier(specifier) {
   }
   return LOCAL_TARBALL_EXTENSIONS.some((extension) => specifier.endsWith(extension));
 }
+function isNpmRegistryTuple(entry) {
+  return typeof entry[1] === "string";
+}
 function splitDescriptor(descriptor) {
   const separator = descriptor.indexOf("@", 1);
   if (separator <= 0) {
@@ -11291,7 +11294,7 @@ var bunLockfile = {
         uncheckable.push({ name, version: null, reason: `resolved via ${protocol}` });
         continue;
       }
-      if (isLocalTarballSpecifier(specifier)) {
+      if (!isNpmRegistryTuple(entry) && isLocalTarballSpecifier(specifier)) {
         uncheckable.push({ name, version: null, reason: "resolved via local tarball" });
         continue;
       }

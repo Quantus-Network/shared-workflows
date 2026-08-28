@@ -117,6 +117,19 @@ describe("bun.lock", () => {
     ]);
   });
 
+  it.each(["1.2.3-release.tgz", "1.0.0-beta.tar.gz", "2.0.0-rc.tar"])(
+    "collects registry semver %s even though it ends with a tarball extension",
+    (version) => {
+      const parsed = bunLockfile.parse(
+        `{ "packages": { "pkg": ["pkg@${version}", "", {}, "sha512-abcd"] } }`,
+        "bun.lock",
+      );
+
+      expect(parsed.uncheckable).toEqual([]);
+      expect(parsed.refs).toEqual([{ registry: "npm", name: "pkg", version }]);
+    },
+  );
+
   it("reports a relative local tarball as uncheckable rather than treating it as a registry version", () => {
     const parsed = bunLockfile.parse(
       '{ "packages": { "human-readable-checksum": ["human-readable-checksum@./package/human-readable-checksum-0.3.0.tgz", {}] } }',
@@ -133,7 +146,12 @@ describe("bun.lock", () => {
     ]);
   });
 
-  it.each(["../vendor/pkg-1.0.0.tgz", "/opt/pkg-1.0.0.tgz", "package/pkg-1.0.0.tgz"])(
+  it.each([
+    "../vendor/pkg-1.0.0.tgz",
+    "/opt/pkg-1.0.0.tgz",
+    "package/pkg-1.0.0.tgz",
+    "./1.2.3-release.tgz",
+  ])(
     "reports local tarball specifier %s as uncheckable",
     (specifier) => {
       const parsed = bunLockfile.parse(

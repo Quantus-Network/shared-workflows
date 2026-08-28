@@ -10,7 +10,11 @@ import type { DependencyRef, LockfileFormat, ParsedLockfile } from "../types.js"
  *
  * Local tarballs are a separate resolution type: Bun writes `name@./file.tgz`
  * with no `file:` prefix (folders use `file:`, remote tarball URLs use
- * `http:`/`https:`).
+ * `http:`/`https:`). Distinguishing them from registry versions must use the
+ * tuple, not the specifier suffix: npm prereleases such as `1.2.3-release.tgz`
+ * are valid, and Bun still stores them as `[name@version, registry, meta,
+ * integrity]` with a string registry field. Local tarballs put the metadata
+ * object in that slot: `[name@tarball, meta]`.
  */
 const NON_REGISTRY_PROTOCOLS = [
   "workspace:",
@@ -30,6 +34,11 @@ function isLocalTarballSpecifier(specifier: string): boolean {
     return true;
   }
   return LOCAL_TARBALL_EXTENSIONS.some((extension) => specifier.endsWith(extension));
+}
+
+/** npm resolutions store a registry URL (or `""` for the default) at index 1. */
+function isNpmRegistryTuple(entry: unknown[]): boolean {
+  return typeof entry[1] === "string";
 }
 
 function splitDescriptor(descriptor: string): { name: string; specifier: string } {
@@ -87,7 +96,7 @@ export const bunLockfile: LockfileFormat = {
         uncheckable.push({ name, version: null, reason: `resolved via ${protocol}` });
         continue;
       }
-      if (isLocalTarballSpecifier(specifier)) {
+      if (!isNpmRegistryTuple(entry) && isLocalTarballSpecifier(specifier)) {
         uncheckable.push({ name, version: null, reason: "resolved via local tarball" });
         continue;
       }
