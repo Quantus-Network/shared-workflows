@@ -9347,8 +9347,9 @@ function parseTimestamp(raw, subject) {
 var cargoRegistry = {
   id: "cargo",
   displayName: "crates.io",
-  // crates.io asks API clients to stay near one request per second.
+  // crates.io data-access policy: at most one API request per second.
   maxConcurrency: 1,
+  minRequestIntervalMs: 1e3,
   versionUrl(name, version) {
     return `https://crates.io/crates/${name}/${version}`;
   },
@@ -9376,6 +9377,7 @@ var npmRegistry = {
   id: "npm",
   displayName: "npmjs.com",
   maxConcurrency: 8,
+  minRequestIntervalMs: 0,
   versionUrl(name, version) {
     return `https://www.npmjs.com/package/${name}/v/${version}`;
   },
@@ -9395,6 +9397,7 @@ var pubRegistry = {
   id: "pub",
   displayName: "pub.dev",
   maxConcurrency: 8,
+  minRequestIntervalMs: 0,
   versionUrl(name, version) {
     return `https://pub.dev/packages/${name}/versions/${version}`;
   },
@@ -9513,6 +9516,29 @@ function renderSummary(input) {
 }
 
 // src/resolve.ts
+var systemClock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve4) => setTimeout(resolve4, ms))
+};
+function createStartGate(minIntervalMs, clock) {
+  if (!Number.isFinite(minIntervalMs) || minIntervalMs < 0) {
+    throw new Error(
+      `minRequestIntervalMs must be a non-negative number, got ${String(minIntervalMs)}.`
+    );
+  }
+  let nextAllowedAt = 0;
+  return async () => {
+    if (minIntervalMs === 0) {
+      return;
+    }
+    const t = clock.now();
+    const wait = nextAllowedAt - t;
+    nextAllowedAt = Math.max(nextAllowedAt, t) + minIntervalMs;
+    if (wait > 0) {
+      await clock.sleep(wait);
+    }
+  };
+}
 async function mapWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -9525,7 +9551,7 @@ async function mapWithConcurrency(items, limit, worker) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run3));
   return results;
 }
-async function resolvePublishDates(dependencies, http) {
+async function resolvePublishDates(dependencies, http, clock = systemClock) {
   const byRegistry = /* @__PURE__ */ new Map();
   for (const dependency of dependencies) {
     const bucket = byRegistry.get(dependency.registry);
@@ -9538,10 +9564,14 @@ async function resolvePublishDates(dependencies, http) {
   const perRegistry = await Promise.all(
     [...byRegistry.entries()].map(async ([registryId, bucket]) => {
       const registry = REGISTRIES[registryId];
-      return mapWithConcurrency(bucket, registry.maxConcurrency, async (dependency) => ({
-        dependency,
-        publishedAt: await registry.fetchPublishedAt(dependency.name, dependency.version, http)
-      }));
+      const waitForSlot = createStartGate(registry.minRequestIntervalMs, clock);
+      return mapWithConcurrency(bucket, registry.maxConcurrency, async (dependency) => {
+        await waitForSlot();
+        return {
+          dependency,
+          publishedAt: await registry.fetchPublishedAt(dependency.name, dependency.version, http)
+        };
+      });
     })
   );
   return perRegistry.flat();
@@ -12328,7 +12358,7 @@ async function run2(argv, overrides = {}) {
   console.log(
     mode === "check" ? `${subjects.length} newly introduced dependency version(s) to verify.` : `${subjects.length} locked dependency version(s) to verify.`
   );
-  const dated = await resolvePublishDates(subjects, http);
+  const dated = await resolvePublishDates(subjects, http, overrides.clock);
   const { violations } = evaluatePolicy(dated, {
     minReleaseAgeDays: config.minReleaseAgeDays,
     now

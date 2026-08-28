@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { BYPASS_REASON_MARKER } from "../src/bypass.js";
 import type { HttpClient } from "../src/registries/http.js";
+import type { Clock } from "../src/resolve.js";
 import { DEFAULT_BYPASS_LABEL, run } from "../src/run.js";
 import { CLOUDFLARE_PAGES_BUN_LOCKB_MARKER } from "../src/scan.js";
 import { readFixture } from "./helpers/fixtures.js";
@@ -13,6 +14,12 @@ import { readFixture } from "./helpers/fixtures.js";
 const NOW = new Date("2026-08-27T12:00:00Z");
 const OLD = "2020-01-01T00:00:00.000Z";
 const FRESH = "2026-08-25T00:00:00.000Z";
+
+/** Skip wall-clock crates.io pacing; the interval itself is tested in resolve.test.ts. */
+const unpaced: Clock = {
+  now: () => Date.now(),
+  sleep: async () => {},
+};
 
 /**
  * Publish dates keyed by `name@version`; anything not listed is old enough to
@@ -104,6 +111,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({}),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -119,6 +127,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "tiny-invariant@1.3.4": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(1);
@@ -135,6 +144,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "tiny-invariant@1.3.4": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -149,6 +159,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "once_cell@1.20.2": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(1);
@@ -165,6 +176,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "tiny-invariant@1.3.4": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -183,6 +195,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "tiny-invariant@1.3.4": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -199,6 +212,7 @@ describe("check mode", () => {
       run(["--mode=check", "--base-ref=HEAD", `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(new RegExp(BYPASS_REASON_MARKER));
   });
@@ -212,6 +226,7 @@ describe("check mode", () => {
       run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(/below the organisation floor/);
   });
@@ -226,6 +241,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({}),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(1);
@@ -241,6 +257,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "serde@1.0.213": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(1);
@@ -258,6 +275,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "tslib@2.8.1": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(1);
@@ -276,6 +294,7 @@ describe("check mode", () => {
       run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(/bun\.lockb/);
   });
@@ -289,6 +308,7 @@ describe("check mode", () => {
       run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(/bun\.lockb/);
   });
@@ -301,6 +321,7 @@ describe("check mode", () => {
       run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(/bun\.lockb/);
   });
@@ -313,6 +334,7 @@ describe("check mode", () => {
       run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(/No supported lockfile/);
   });
@@ -326,6 +348,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "serde@1.0.213": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(1);
@@ -341,6 +364,7 @@ describe("check mode", () => {
     const code = await run(["--mode=check", `--base-ref=${baseSha}`, `--repo-dir=${repoDir}`], {
       http: httpStub({ "tiny-invariant@1.3.4": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -355,6 +379,7 @@ describe("audit mode", () => {
     const code = await run(["--mode=audit", `--repo-dir=${repoDir}`], {
       http: httpStub({ "tiny-invariant@1.3.4": true }),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -370,6 +395,7 @@ describe("audit mode", () => {
       run(["--mode=audit", "--base-ref=HEAD", `--repo-dir=${repoDir}`], {
         http: httpStub({}),
         now: NOW,
+        clock: unpaced,
       }),
     ).rejects.toThrow(/not used in audit mode/);
   });
@@ -382,6 +408,7 @@ describe("audit mode", () => {
     const code = await run(["--mode=audit", `--repo-dir=${repoDir}`], {
       http: httpStub({}),
       now: NOW,
+      clock: unpaced,
     });
 
     expect(code).toBe(0);
@@ -410,7 +437,11 @@ describe("audit mode", () => {
       },
     };
 
-    const code = await run(["--mode=audit", `--repo-dir=${repoDir}`], { http, now: NOW });
+    const code = await run(["--mode=audit", `--repo-dir=${repoDir}`], {
+      http,
+      now: NOW,
+      clock: unpaced,
+    });
 
     expect(code).toBe(0);
     expect(summary()).toContain("human-readable-checksum");

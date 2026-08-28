@@ -10,6 +10,7 @@ export const pubRegistry: Registry = {
   id: "pub",
   displayName: "pub.dev",
   maxConcurrency: 8,
+  minRequestIntervalMs: 0,
 
   versionUrl(name, version) {
     return `https://pub.dev/packages/${name}/versions/${version}`;
